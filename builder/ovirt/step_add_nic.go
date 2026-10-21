@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"strings"
 
 	"github.com/hashicorp/packer-plugin-sdk/multistep"
 	"github.com/hashicorp/packer-plugin-sdk/packer"
@@ -23,12 +24,14 @@ func (s *stepAddNic) findVnicProfile(conn *ovirtsdk4.Connection, networkID strin
 	if len(profiles) == 0 {
 		return "", fmt.Errorf("could not find VNIC profile '%s'", name)
 	}
+	names := make([]string, 0, len(profiles))
 	for i := range profiles {
 		if profiles[i].MustName() == name {
 			return profiles[i].MustId(), nil
 		}
+		names = append(names, profiles[i].MustName())
 	}
-	return profiles[0].MustId(), nil
+	return "", fmt.Errorf("could not find VNIC profile '%s' (available: %s)", name, strings.Join(names, ", "))
 }
 
 func (s *stepAddNic) findNetwork(conn *ovirtsdk4.Connection, name string) (string, error) {
