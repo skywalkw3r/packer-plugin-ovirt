@@ -521,6 +521,11 @@ func TestStepUploadISO_FailedUploadCleansUp(t *testing.T) {
 		!strings.Contains(err.Error(), "disk full") {
 		t.Fatalf("unexpected error: %v", err)
 	}
+	// The ticket ID in the imageio URL is the transfer's credential.
+	if err, _ := state.Get("error").(error); strings.Contains(err.Error(), "/images/t") ||
+		!strings.Contains(err.Error(), "/images/REDACTED") {
+		t.Fatalf("the error must not show the imageio ticket: %v", err)
+	}
 	if _, ok := state.GetOk(isoDiskIDKey); ok {
 		t.Fatal("a failed upload must not leave a disk ID in the state")
 	}

@@ -9,6 +9,7 @@ import (
 	"io"
 	"log"
 	"net/http"
+	"net/url"
 	"strings"
 	"time"
 
@@ -43,6 +44,38 @@ func newImageioClient(config *Config) *http.Client {
 func isNotFound(err error) bool {
 	var notFound *ovirtsdk4.NotFoundError
 	return errors.As(err, &notFound)
+}
+
+// redactImageioURL hides the ticket ID in an ovirt-imageio URL
+// (https://host:port/images/<ticket-id>/...). The ticket ID is the only
+// credential for the transfer, so it must not reach errors or logs.
+func redactImageioURL(rawURL string) string {
+	u, err := url.Parse(rawURL)
+	if err != nil {
+		return "(ovirt-imageio URL)"
+	}
+	before, rest, ok := strings.Cut(u.Path, "/images/")
+	if !ok {
+		return u.Redacted()
+	}
+	_, suffix, _ := strings.Cut(rest, "/")
+	u.Path = before + "/images/REDACTED"
+	if suffix != "" {
+		u.Path += "/" + suffix
+	}
+	u.RawPath = ""
+	return u.Redacted()
+}
+
+// imageioDo sends a request to ovirt-imageio. A transport error names the URL,
+// so the ticket ID is hidden in it.
+func imageioDo(client *http.Client, req *http.Request) (*http.Response, error) {
+	resp, err := client.Do(req)
+	var urlErr *url.Error
+	if errors.As(err, &urlErr) {
+		urlErr.URL = redactImageioURL(urlErr.URL)
+	}
+	return resp, err
 }
 
 // sleepContext waits for d, or returns early with the context's error.
@@ -185,7 +218,7 @@ func imageioURL(ctx context.Context, client *http.Client, transfer *ovirtsdk4.Im
 	var lastErr error
 	for _, u := range urls {
 		if err := imageioOptions(ctx, client, u); err != nil {
-			log.Printf("Could not reach %s: %s", u, err)
+			log.Printf("Could not reach %s: %s", redactImageioURL(u), err)
 			lastErr = err
 			continue
 		}
@@ -202,7 +235,7 @@ func imageioOptions(ctx context.Context, client *http.Client, imageURL string) e
 	if err != nil {
 		return err
 	}
-	resp, err := client.Do(req)
+	resp, err := imageioDo(client, req)
 	if err != nil {
 		return err
 	}
@@ -215,7 +248,7 @@ func imageioCheckResponse(resp *http.Response, closeBody bool) error {
 	if resp.StatusCode != http.StatusOK {
 		message, _ := io.ReadAll(io.LimitReader(resp.Body, 1024))
 		_ = resp.Body.Close()
-		return fmt.Errorf("%s %s: %s: %s", resp.Request.Method, resp.Request.URL.Redacted(),
+		return fmt.Errorf("%s %s: %s: %s", resp.Request.Method, redactImageioURL(resp.Request.URL.String()),
 			resp.Status, strings.TrimSpace(string(message)))
 	}
 	if closeBody {
@@ -234,7 +267,7 @@ func imageioUpload(ctx context.Context, client *http.Client, imageURL string, bo
 	req.ContentLength = size
 	req.Header.Set("Content-Type", "application/octet-stream")
 
-	resp, err := client.Do(req)
+	resp, err := imageioDo(client, req)
 	if err != nil {
 		return err
 	}
@@ -246,7 +279,7 @@ func imageioGetJSON(ctx context.Context, client *http.Client, url string, result
 	if err != nil {
 		return err
 	}
-	resp, err := client.Do(req)
+	resp, err := imageioDo(client, req)
 	if err != nil {
 		return err
 	}
