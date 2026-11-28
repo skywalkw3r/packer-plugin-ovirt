@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"strings"
 
 	"github.com/hashicorp/packer-plugin-sdk/communicator"
 	"github.com/hashicorp/packer-plugin-sdk/multistep"
@@ -19,17 +20,30 @@ type stepSetupInitialRun struct {
 
 func (s *stepSetupInitialRun) findImage(conn *ovirtsdk4.Connection, name string) (string, error) {
 	log.Printf("Searching for ISO image '%s'", name)
+	// The search syntax has no escape for a double quote inside a quoted value.
+	if strings.Contains(name, `"`) {
+		return "", fmt.Errorf("invalid ISO image name '%s': it must not contain double quotes", name)
+	}
 	service := conn.SystemService().DisksService()
-	resp, err := service.List().Search(fmt.Sprintf("disk_content_type=iso and name=%s", name)).Send()
+	resp, err := service.List().Search(fmt.Sprintf(`disk_content_type=iso and name="%s"`, name)).Send()
 	if err != nil {
-		return "", fmt.Errorf("error while searching for storage domain '%s': %s", name, err)
+		return "", fmt.Errorf("error while searching for ISO image '%s': %s", name, err)
 	}
 	disks := resp.MustDisks().Slice()
 
-	if len(disks) == 0 {
+	switch len(disks) {
+	case 0:
 		return "", fmt.Errorf("could not find ISO image '%s'", name)
+	case 1:
+		return disks[0].MustId(), nil
 	}
-	return disks[0].MustId(), nil
+
+	ids := make([]string, 0, len(disks))
+	for _, disk := range disks {
+		ids = append(ids, disk.MustId())
+	}
+	return "", fmt.Errorf("found %d ISO images matching '%s' (%s), the name must match exactly one",
+		len(disks), name, strings.Join(ids, ", "))
 }
 
 func (s *stepSetupInitialRun) readFile(name string) (*ovirtsdk4.File, error) {
