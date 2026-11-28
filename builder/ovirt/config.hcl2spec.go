@@ -28,6 +28,14 @@ type FlatConfig struct {
 	SourceTemplateVersion     *int64            `mapstructure:"source_template_version" cty:"source_template_version" hcl:"source_template_version"`
 	SourceTemplateID          *string           `mapstructure:"source_template_id" cty:"source_template_id" hcl:"source_template_id"`
 	SourceISO                 *string           `mapstructure:"source_iso" cty:"source_iso" hcl:"source_iso"`
+	ISOChecksum               *string           `mapstructure:"iso_checksum" required:"true" cty:"iso_checksum" hcl:"iso_checksum"`
+	RawSingleISOUrl           *string           `mapstructure:"iso_url" required:"true" cty:"iso_url" hcl:"iso_url"`
+	ISOUrls                   []string          `mapstructure:"iso_urls" cty:"iso_urls" hcl:"iso_urls"`
+	TargetPath                *string           `mapstructure:"iso_target_path" cty:"iso_target_path" hcl:"iso_target_path"`
+	TargetExtension           *string           `mapstructure:"iso_target_extension" cty:"iso_target_extension" hcl:"iso_target_extension"`
+	RemoteCacheDiskName       *string           `mapstructure:"remote_cache_disk_name" cty:"remote_cache_disk_name" hcl:"remote_cache_disk_name"`
+	RemoteCacheOverwrite      *bool             `mapstructure:"remote_cache_overwrite" cty:"remote_cache_overwrite" hcl:"remote_cache_overwrite"`
+	RemoteCacheCleanup        *bool             `mapstructure:"remote_cache_cleanup" cty:"remote_cache_cleanup" hcl:"remote_cache_cleanup"`
 	CDName                    *string           `mapstructure:"cd_name" cty:"cd_name" hcl:"cd_name"`
 	CDFiles                   []string          `mapstructure:"cd_files" cty:"cd_files" hcl:"cd_files"`
 	CDContent                 map[string]string `mapstructure:"cd_content" cty:"cd_content" hcl:"cd_content"`
@@ -143,6 +151,14 @@ func (*FlatConfig) HCL2Spec() map[string]hcldec.Spec {
 		"source_template_version":      &hcldec.AttrSpec{Name: "source_template_version", Type: cty.Number, Required: false},
 		"source_template_id":           &hcldec.AttrSpec{Name: "source_template_id", Type: cty.String, Required: false},
 		"source_iso":                   &hcldec.AttrSpec{Name: "source_iso", Type: cty.String, Required: false},
+		"iso_checksum":                 &hcldec.AttrSpec{Name: "iso_checksum", Type: cty.String, Required: false},
+		"iso_url":                      &hcldec.AttrSpec{Name: "iso_url", Type: cty.String, Required: false},
+		"iso_urls":                     &hcldec.AttrSpec{Name: "iso_urls", Type: cty.List(cty.String), Required: false},
+		"iso_target_path":              &hcldec.AttrSpec{Name: "iso_target_path", Type: cty.String, Required: false},
+		"iso_target_extension":         &hcldec.AttrSpec{Name: "iso_target_extension", Type: cty.String, Required: false},
+		"remote_cache_disk_name":       &hcldec.AttrSpec{Name: "remote_cache_disk_name", Type: cty.String, Required: false},
+		"remote_cache_overwrite":       &hcldec.AttrSpec{Name: "remote_cache_overwrite", Type: cty.Bool, Required: false},
+		"remote_cache_cleanup":         &hcldec.AttrSpec{Name: "remote_cache_cleanup", Type: cty.Bool, Required: false},
 		"cd_name":                      &hcldec.AttrSpec{Name: "cd_name", Type: cty.String, Required: false},
 		"cd_files":                     &hcldec.AttrSpec{Name: "cd_files", Type: cty.List(cty.String), Required: false},
 		"cd_content":                   &hcldec.AttrSpec{Name: "cd_content", Type: cty.Map(cty.String), Required: false},

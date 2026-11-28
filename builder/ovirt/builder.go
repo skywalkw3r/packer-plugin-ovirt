@@ -34,7 +34,7 @@ func (b *Builder) Prepare(raws ...any) ([]string, []string, error) {
 	}
 	b.config = *c
 
-	return nil, nil, nil
+	return nil, warnings, nil
 }
 
 func ovirtConnect(config *Config, state multistep.StateBag) (*ovirtsdk4.Connection, error) {
@@ -113,6 +113,19 @@ func (b *Builder) Run(ctx context.Context, ui packer.Ui, hook packer.Hook) (arti
 
 	// Build the steps
 	steps := make([]multistep.Step, 0, 20)
+	if b.config.downloadsISO() {
+		// Before the VM is created, so a failed download or upload leaves
+		// nothing behind.
+		steps = append(steps, &commonsteps.StepDownload{
+			Checksum:    b.config.ISOChecksum,
+			Description: "ISO",
+			Extension:   b.config.TargetExtension,
+			ResultKey:   isoPathKey,
+			TargetPath:  b.config.TargetPath,
+			Url:         b.config.ISOUrls,
+		})
+		steps = append(steps, &stepUploadISO{})
+	}
 	steps = append(steps, &stepKeyPair{
 		Debug:        b.config.PackerDebug,
 		Comm:         &b.config.Comm,

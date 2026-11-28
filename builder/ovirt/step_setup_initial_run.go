@@ -92,11 +92,16 @@ func (s *stepSetupInitialRun) Run(ctx context.Context, state multistep.StateBag)
 	}
 
 	if config.SourceType == ISOSource {
-		isoID, err := s.findImage(conn, config.SourceISO)
-		if err != nil {
-			ui.Error(err.Error())
-			state.Put("error", err)
-			return multistep.ActionHalt
+		// For an ISO from iso_url, stepUploadISO left the disk in the state.
+		// Otherwise look source_iso up by name.
+		isoID, uploaded := state.Get(isoDiskIDKey).(string)
+		if !uploaded {
+			isoID, err = s.findImage(conn, config.SourceISO)
+			if err != nil {
+				ui.Error(err.Error())
+				state.Put("error", err)
+				return multistep.ActionHalt
+			}
 		}
 
 		// Attach the boot CDROM to the VM.

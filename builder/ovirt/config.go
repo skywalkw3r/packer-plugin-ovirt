@@ -73,6 +73,14 @@ func NewConfig(raws ...any) (*Config, []string, error) {
 	errs = packer.MultiErrorAppend(errs, c.AccessConfig.Prepare(&c.ctx)...)
 	errs = packer.MultiErrorAppend(errs, c.SourceConfig.Prepare(&c.ctx)...)
 
+	var warnings []string
+	isoWarnings, isoErrs := c.PrepareISO(&c.ctx)
+	warnings = append(warnings, isoWarnings...)
+	errs = packer.MultiErrorAppend(errs, isoErrs...)
+	if c.downloadsISO() && c.StorageDomain == "" {
+		errs = packer.MultiErrorAppend(errs, fmt.Errorf("storage_domain must be specified when iso_url or iso_urls is used"))
+	}
+
 	if len(c.Network) == 0 && len(c.VNICProfile) != 0 {
 		c.Network = c.VNICProfile
 		log.Printf("Set network to %s (copy from VNICProfile)", c.Network)
@@ -138,9 +146,9 @@ func NewConfig(raws ...any) (*Config, []string, error) {
 	errs = packer.MultiErrorAppend(errs, c.Comm.Prepare(&c.ctx)...)
 
 	if errs != nil && len(errs.Errors) > 0 {
-		return nil, nil, errs
+		return nil, warnings, errs
 	}
 
 	packer.LogSecretFilter.Set(c.Password)
-	return c, nil, nil
+	return c, warnings, nil
 }

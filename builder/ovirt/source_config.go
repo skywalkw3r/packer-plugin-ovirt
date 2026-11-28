@@ -4,8 +4,13 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"net/url"
+	"path"
+	"path/filepath"
+	"strings"
 
 	"github.com/google/uuid"
+	"github.com/hashicorp/packer-plugin-sdk/multistep/commonsteps"
 	"github.com/hashicorp/packer-plugin-sdk/template/interpolate"
 )
 
@@ -26,7 +31,23 @@ type SourceConfig struct {
 	SourceTemplateVersion int64  `mapstructure:"source_template_version"`
 	SourceTemplateID      string `mapstructure:"source_template_id"`
 
+	// SourceISO is the name of an ISO disk that already exists on oVirt.
 	SourceISO string `mapstructure:"source_iso"`
+
+	// ISOConfig holds the standard Packer ISO options (iso_url, iso_urls,
+	// iso_checksum, iso_target_path, iso_target_extension). When set, the ISO
+	// is downloaded and uploaded to storage_domain instead of using source_iso.
+	commonsteps.ISOConfig `mapstructure:",squash"`
+
+	// RemoteCacheDiskName is the name of the ISO disk on oVirt. Defaults to
+	// the file name of the first ISO URL.
+	RemoteCacheDiskName string `mapstructure:"remote_cache_disk_name"`
+	// RemoteCacheOverwrite replaces an ISO disk of that name on the storage
+	// domain instead of verifying and reusing it.
+	RemoteCacheOverwrite bool `mapstructure:"remote_cache_overwrite"`
+	// RemoteCacheCleanup removes the ISO disk after the build, if this build
+	// uploaded it.
+	RemoteCacheCleanup bool `mapstructure:"remote_cache_cleanup"`
 
 	CDName    string            `mapstructure:"cd_name"`
 	CDFiles   []string          `mapstructure:"cd_files"`
@@ -71,19 +92,75 @@ func (c *SourceConfig) Prepare(ctx *interpolate.Context) []error {
 		log.Println("Using ISO source type")
 		c.SourceTemplateName = "Blank"
 		c.SourceTemplateID = BlankTemplateUUID
-		if c.SourceISO == "" {
-			errs = append(errs, errors.New("source_iso must be specified"))
+		switch {
+		case c.SourceISO != "" && c.downloadsISO():
+			errs = append(errs, errors.New("conflict: set either source_iso or iso_url/iso_urls"))
+		case c.SourceISO == "" && !c.downloadsISO():
+			errs = append(errs, errors.New("source_iso or iso_url/iso_urls must be specified"))
 		}
 
 	default:
 		errs = append(errs, fmt.Errorf("invalid source_type: %s", c.SourceType))
 	}
 
-	// Required configurations that will display errors if not set
+	if c.downloadsISO() && c.SourceType == TemplateSource {
+		errs = append(errs, errors.New(`iso_url and iso_urls require source_type "iso"`))
+	}
+	if !c.downloadsISO() && (c.RemoteCacheDiskName != "" || c.RemoteCacheOverwrite || c.RemoteCacheCleanup) {
+		errs = append(errs, errors.New("remote_cache_disk_name, remote_cache_overwrite and remote_cache_cleanup require iso_url or iso_urls"))
+	}
 
 	if len(errs) > 0 {
 		return errs
 	}
 
 	return nil
+}
+
+// downloadsISO reports whether the ISO comes from iso_url/iso_urls rather than
+// from a disk that already exists on oVirt.
+func (c *SourceConfig) downloadsISO() bool {
+	return c.RawSingleISOUrl != "" || len(c.ISOUrls) > 0
+}
+
+// PrepareISO validates the ISO download options and sets the default name of
+// the ISO disk on oVirt. It is a no-op unless iso_url or iso_urls is set.
+func (c *SourceConfig) PrepareISO(ctx *interpolate.Context) (warnings []string, errs []error) {
+	if !c.downloadsISO() {
+		return nil, nil
+	}
+
+	warnings, errs = c.ISOConfig.Prepare(ctx)
+	if len(errs) > 0 {
+		return warnings, errs
+	}
+
+	if c.RemoteCacheDiskName == "" {
+		name, err := isoFileName(c.ISOUrls[0])
+		if err != nil {
+			errs = append(errs, fmt.Errorf("could not derive remote_cache_disk_name from %q, set it explicitly: %w", c.ISOUrls[0], err))
+			return warnings, errs
+		}
+		c.RemoteCacheDiskName = name
+	}
+	// The oVirt search syntax has no escape for a double quote inside a
+	// quoted value, so such a disk could never be found again.
+	if strings.Contains(c.RemoteCacheDiskName, `"`) {
+		errs = append(errs, errors.New("remote_cache_disk_name must not contain double quotes"))
+	}
+
+	return warnings, errs
+}
+
+// isoFileName returns the file name of an ISO URL or local path.
+func isoFileName(rawURL string) (string, error) {
+	p := rawURL
+	if u, err := url.Parse(rawURL); err == nil && (u.Path != "" || u.Host != "") {
+		p = u.Path
+	}
+	name := path.Base(filepath.ToSlash(p))
+	if name == "" || name == "." || name == "/" {
+		return "", errors.New("no file name in the URL")
+	}
+	return name, nil
 }
